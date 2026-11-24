@@ -31,7 +31,7 @@ jobs:
           sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
           apt-get update
           apt-get build-dep -y webkit2gtk
-          apt-get install -y ccache curl xz-utils zstd
+          apt-get install -y ccache curl xz-utils zstd libgstreamer-plugins-bad1.0-dev libssl-dev
 
       - name: Restore ccache
         uses: actions/cache/restore@v5
@@ -57,7 +57,7 @@ jobs:
         run: |
           cmake -S "/mnt/webkitgtk-${WEBKIT_VERSION}" -B /mnt/build -G Ninja \
             -DPORT=GTK -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_GTK4=OFF \
+            -DUSE_GTK4=OFF -DUSE_LIBBACKTRACE=OFF \
             -DENABLE_DOCUMENTATION=OFF -DENABLE_INTROSPECTION=OFF -DENABLE_MINIBROWSER=OFF \
             -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
