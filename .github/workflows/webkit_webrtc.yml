@@ -1,0 +1,93 @@
+name: WebKitGTK with WebRTC (manual)
+
+on:
+  push:
+    branches:
+      - webkit-webrtc
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WEBKIT_VERSION: 2.52.6
+  WEBKIT_SHA256: 179a2ea3f8f6edd4be7f31fdc55afc57bd0729f1fba648c61d4181539ac116fc
+  CCACHE_DIR: /mnt/ccache
+  CCACHE_MAXSIZE: 6G
+
+jobs:
+  webkit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    # Same distro as the target desktop so the built libraries match its ICU, GStreamer and GTK
+    container:
+      image: ubuntu:26.04
+      volumes:
+        - /mnt:/mnt
+    steps:
+      - name: Install build dependencies
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          apt-get update
+          apt-get build-dep -y webkit2gtk
+          apt-get install -y ccache curl xz-utils zstd
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v5
+        with:
+          path: /mnt/ccache
+          key: webkit-${{ env.WEBKIT_VERSION }}-ccache-${{ github.run_id }}
+          restore-keys: webkit-${{ env.WEBKIT_VERSION }}-ccache-
+
+      - name: Fetch and patch sources
+        run: |
+          cd /mnt
+          curl -fsSLO "https://webkitgtk.org/releases/webkitgtk-${WEBKIT_VERSION}.tar.xz"
+          echo "${WEBKIT_SHA256}  webkitgtk-${WEBKIT_VERSION}.tar.xz" | sha256sum -c -
+          tar -xf "webkitgtk-${WEBKIT_VERSION}.tar.xz"
+          cd "webkitgtk-${WEBKIT_VERSION}"
+          # ENABLE_WEB_RTC and USE_LIBRICE are private options, so they can only be changed here
+          sed -i 's/^WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE .*)$/WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE ON)/' Source/cmake/OptionsGTK.cmake
+          sed -i 's/^WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LIBRICE PRIVATE ON)$/WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LIBRICE PRIVATE OFF)/' Source/cmake/OptionsGTK.cmake
+          grep -q '^WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE ON)$' Source/cmake/OptionsGTK.cmake
+          grep -q '^WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LIBRICE PRIVATE OFF)$' Source/cmake/OptionsGTK.cmake
+
+      - name: Configure
+        run: |
+          cmake -S "/mnt/webkitgtk-${WEBKIT_VERSION}" -B /mnt/build -G Ninja \
+            -DPORT=GTK -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_GTK4=OFF \
+            -DENABLE_DOCUMENTATION=OFF -DENABLE_INTROSPECTION=OFF -DENABLE_MINIBROWSER=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          grep -E '^(ENABLE_WEB_RTC|ENABLE_MEDIA_STREAM|USE_GSTREAMER_WEBRTC|USE_LIBWEBRTC):' /mnt/build/CMakeCache.txt || true
+
+      # Stops before the job limit so the ccache below is saved and the next run resumes
+      - name: Build
+        run: |
+          rc=0
+          timeout --signal=INT 320m ninja -C /mnt/build -j4 || rc=$?
+          ccache -s
+          exit $rc
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: /mnt/ccache
+          key: webkit-${{ env.WEBKIT_VERSION }}-ccache-${{ github.run_id }}
+
+      - name: Package
+        run: |
+          DESTDIR=/mnt/stage ninja -C /mnt/build install
+          lib=/mnt/stage/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
+          grep -c RTCPeerConnection "$lib"
+          tar -czf "/mnt/webkit2gtk-4.1-webrtc-${WEBKIT_VERSION}-ubuntu26.04.tar.gz" -C /mnt/stage .
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: webkit2gtk-4.1-webrtc-${{ env.WEBKIT_VERSION }}-ubuntu26.04
+          path: /mnt/webkit2gtk-4.1-webrtc-${{ env.WEBKIT_VERSION }}-ubuntu26.04.tar.gz
+          retention-days: 30
