@@ -1,0 +1,44 @@
+name: Linux AppImage (manual)
+
+on:
+  push:
+    branches:
+      - ci/thumb-wheel-build
+  workflow_dispatch:
+
+jobs:
+  appimage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: 'true'
+
+      # Reuses the deps cache saved by build_all (same key as build_check_cache.yml)
+      - name: Restore cached deps
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ github.workspace }}/deps/build/ElegooSlicer_dep
+          key: linux-clang-cache-orcaslicer_deps-build-${{ hashFiles('deps/**') }}
+          fail-on-cache-miss: true
+
+      # The slicer links the Agora libs straight from the elegoo-link source tree, which the cache does not hold
+      - name: Fetch elegoo-link sources
+        run: git clone --depth 1 https://github.com/ELEGOO-3D/elegoo-link.git deps/build/dep_elegoolink-prefix/src/dep_elegoolink
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Apt-Install Dependencies
+        uses: ./.github/actions/apt-install-deps
+
+      - name: Build slicer and AppImage
+        run: |
+          ./build_linux.sh -sirlL
+          ls -la build/*.AppImage
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: ElegooSlicer_Linux_AppImage_${{ github.sha }}
+          path: build/*.AppImage
+          if-no-files-found: error

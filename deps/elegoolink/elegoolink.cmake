@@ -49,6 +49,7 @@ orcaslicer_add_cmake_project(elegoolink
         -DBUILD_EXAMPLES=OFF
         -DBUILD_TESTS=OFF
         -DBUILD_SHARED_LIBS=OFF
+        "-DCMAKE_CXX_FLAGS=-include algorithm"
         -DENABLE_CLOUD_FEATURES=ON
         -DAGORA_APP_ID=${AGORA_APP_ID}
         -DELEGOO_CHINA_IOT_URL=${ELEGOO_CHINA_IOT_URL}
